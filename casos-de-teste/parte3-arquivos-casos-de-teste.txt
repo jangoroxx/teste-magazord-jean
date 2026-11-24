@@ -1,0 +1,17 @@
+CASOS DE TESTE - PARTE 3 (ARQUIVOS) - Questão 3.1 - Upload de CSV (https://the-internet.herokuapp.com/upload)
+Formato do CSV: nome,email,idade,cidade
+
+CT-3.01 P:A - CSV pequeno (10 linhas)  - gerado dinamicamente; válido; upload concluído ("File Uploaded!" e nome do arquivo).
+CT-3.02 P:A - CSV médio (100 linhas)   - idem.
+CT-3.03 P:A - CSV grande (1000 linhas) - idem; contagem de registros = 1000; e-mails únicos.
+CT-3.04 P:M - Fixture válido do README (2 linhas) - validador aprova e o upload é concluído.
+CT-3.05 P:A - CSV vazio
+  Esperado (sistema real): rejeitar com mensagem clara. No site de exemplo: o conteúdo é reprovado pelo validador e o comportamento do site é registrado.
+CT-3.06 P:A - Formato incorreto (delimitador ";" e cabeçalho diferente) - validador aponta cabeçalho inválido.
+CT-3.07 P:A - Dados malformados
+  Conteúdo: e-mail sem "@", idade "abc", linha com colunas faltando, e-mail duplicado, nome vazio.
+  Esperado: todas as linhas problemáticas reportadas, com número da linha.
+CT-3.08 P:A - Arquivo corrompido (bytes binários/inválidos) - validador identifica "arquivo corrompido".
+CT-3.09 P:M - Gerador/validador (unitário)
+  Esperado: quantidade exata de linhas; sem duplicatas; campo com vírgula entre aspas lido corretamente.
+Observação: o site de exemplo não valida conteúdo; os testes documentam isso e não simulam uma rejeição que não existe.

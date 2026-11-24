@@ -1,0 +1,19 @@
+CASOS DE TESTE - PARTE 2 (E2E) - Questão 2.1 - SauceDemo (https://www.saucedemo.com)
+Dados dinâmicos: nome, sobrenome e CEP gerados com Faker a cada execução.
+
+CT-2.01 P:A - Checkout completo (caminho feliz)
+  Passos: login standard_user -> adicionar Backpack e Bike Light -> carrinho -> checkout -> preencher dados -> continuar -> finalizar.
+  Esperado: badge do carrinho = 2; itens corretos no carrinho; URL checkout-complete; mensagem "Thank you for your order!".
+CT-2.02 P:A - Resumo do pedido
+  Esperado: subtotal = soma dos preços dos itens; total >= subtotal (inclui imposto).
+CT-2.03 P:A - Primeiro nome obrigatório
+  Passos: deixar firstName vazio e continuar.  Esperado: erro "First Name is required" e permanece na etapa 1.
+CT-2.04 P:A - Sobrenome obrigatório   (idem, "Last Name is required")
+CT-2.05 P:A - CEP obrigatório         (idem, "Postal Code is required")
+CT-2.06 P:M - Usuário bloqueado
+  Passos: login com locked_out_user.  Esperado: mensagem "locked out" e não acessa o inventário.
+CT-2.07 P:M - Isolamento entre execuções
+  Esperado: após cada teste, cookies/localStorage/sessionStorage são limpos; um teste não depende do anterior.
+CT-2.08 P:M - Gerador de dados
+  Esperado: nomes preenchidos, CEP no formato 00000-000 e dados diferentes a cada chamada.
+Fora do escopo do site (apenas teoria): cupom de uso único e e-mail de confirmação (ver RESPOSTA_TEORICA.md).

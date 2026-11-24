@@ -1,0 +1,34 @@
+CASOS DE TESTE - PARTE 1 (API) - Questão 1.1
+Legenda: P = prioridade (A alta, M média, B baixa) | [mock] = simulado, [real] = chamada real
+
+API 1 - Rate limiting (GitHub API: GET /users/github)
+CT-1.01 [real] P:A - Headers de rate limit presentes
+  Passos: GET /users/github.  Esperado: status 200 e headers X-RateLimit-Limit, -Remaining e -Reset presentes.
+CT-1.02 [real] P:A - Valores coerentes dos headers
+  Esperado: limit=60 (sem token) ou >=5000 (com token); 0<=remaining<=limit; reset no futuro (epoch em segundos).
+CT-1.03 [real] P:M - Remaining não aumenta entre chamadas
+  Passos: duas chamadas seguidas.  Esperado: remaining da 2ª <= remaining da 1ª; limit igual.
+CT-1.04 [mock] P:A - Detecção de limite esgotado
+  Dado: resposta 403 com remaining=0.  Esperado: classificada como rate limit.
+CT-1.05 [mock] P:A - 403 por permissão não é rate limit
+  Dado: resposta 403 com remaining>0.  Esperado: NÃO classificada como rate limit.
+CT-1.06 [mock] P:M - Cálculo da espera até o reset
+  Esperado: segundos até o reset corretos; nunca negativo se o reset já passou.
+CT-1.07 [real/manual] P:B - Exaustão real do limite (não automatizado por risco de bloquear o IP)
+  Esperado: 403 após 60 chamadas e recuperação após o reset. Justificativa no RESPOSTA_TEORICA.md.
+
+API 2 - Token (ReqRes: POST /api/login e GET /api/users/2)
+CT-1.08 [real] P:A - Login retorna token e o token é reutilizado
+  Esperado: token não vazio; segunda chamada a getToken não faz novo login; GET /users/2 retorna 200 com id=2. Requer REQRES_API_KEY; sem ela é pulado.
+CT-1.08b [real] P:A - Sem REQRES_API_KEY: login, reuso do token e recusa do Bearer
+  Esperado: token reutilizado; GET /users/2 sem Bearer retorna 200 com id=2; com Bearer retorna 401 missing_api_key após uma única renovação.
+CT-1.09 [mock] P:A - Token expira por TTL (2 min)
+  Passos: avançar o relógio para 119s e depois 121s.  Esperado: 119s reutiliza; 121s faz novo login.
+CT-1.10 [mock] P:M - Renovação antecipada pela margem de segurança
+  Esperado: dentro da margem, o token é renovado antes de expirar.
+CT-1.11 [mock] P:A - Servidor responde 401
+  Esperado: renova o token e repete a requisição uma vez, com sucesso.
+CT-1.12 [mock] P:A - 401 persistente
+  Esperado: apenas 1 retry; devolve 401 sem loop infinito.
+CT-1.13 [mock] P:M - Logins concorrentes
+  Passos: 3 chamadas simultâneas a getToken.  Esperado: apenas 1 login e o mesmo token para todos.
