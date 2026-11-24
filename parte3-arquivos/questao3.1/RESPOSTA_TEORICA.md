@@ -2,24 +2,26 @@
 
 ## 3.1.a) Como validar que todas as 1000 linhas foram processadas corretamente
 
-Uso **reconciliação** entre o que entrou e o que foi persistido:
+A primeira conferência é a conta fechar: linhas lidas têm que ser iguais às importadas mais as rejeitadas, e cada rejeitada precisa trazer o motivo, com linha e coluna. O relatório da importação tem que mostrar esses mesmos números.
 
-- **Contagem fechando:** `linhas lidas = linhas importadas + linhas rejeitadas`, e as rejeitadas com motivo (linha/coluna). O relatório final da importação precisa bater com isso.
-- **Conferência no destino:** consulta no banco (ou API) comparando total de registros, e verificação campo a campo (ou *hash* por linha) entre o CSV de origem e o dado salvo, com amostragem de fronteira: primeira, última e uma linha do meio.
-- **Regras de negócio e relacionamentos:** chaves estrangeiras existentes, duplicatas tratadas conforme a regra (ignorar, atualizar ou rejeitar) e idempotência (importar o mesmo arquivo duas vezes não duplica).
-- **Dados reproduzíveis:** o gerador de CSV aceita quantidade e, se necessário, *seed* fixa, para que uma falha possa ser reproduzida.
-- **Não funcionais:** tempo de processamento, uso de memória e comportamento na fronteira (999, 1000 e 1001 linhas).
+Só a contagem não basta, porque podem existir 1000 registros com dados trocados. Por isso eu compararia o CSV com o que foi salvo, campo a campo ou por um hash de cada linha, consultando o banco ou a API. A primeira linha, a última e uma do meio eu conferiria sempre de forma explícita, porque erro de índice costuma aparecer nas pontas.
+
+Depois vêm as regras de negócio: se as chaves estrangeiras existem, se as duplicatas foram tratadas como combinado (ignorar, atualizar ou rejeitar) e se importar o mesmo arquivo duas vezes não duplica os dados.
+
+Também testaria 999, 1000 e 1001 linhas, para pegar problema na fronteira, e acompanharia tempo e memória. Para que uma falha possa ser reproduzida, o gerador de dados precisa poder usar uma seed fixa.
 
 ## 3.1.b) Como testar cenários de erro (arquivo corrompido, dados inválidos)
 
-Monto uma matriz de arquivos problemáticos:
+Eu montaria um conjunto de arquivos com problema, cada um com um defeito só, para saber o que causou o erro:
 
-- vazio; só cabeçalho; cabeçalho errado/ausente; delimitador errado (`;` em vez de `,`);
-- codificação (UTF-8 com BOM, Latin-1); binário/truncado (corrompido); aspas não fechadas;
-- colunas a mais ou a menos; tipos inválidos (idade "abc", e-mail sem `@`); valores fora de faixa;
-- duplicatas; chave estrangeira inexistente; linhas em branco; arquivo acima do limite de tamanho;
-- *CSV injection* (células iniciando com `=`, `+`, `-`, `@`).
+- Arquivo: vazio, só com cabeçalho, truncado, binário ou acima do tamanho permitido.
+- Estrutura: cabeçalho errado ou ausente, `;` no lugar de `,`, aspas não fechadas, colunas a mais ou a menos, linhas em branco.
+- Codificação: UTF-8 com BOM e Latin-1, que aparecem bastante em planilhas exportadas.
+- Dados: idade "abc", e-mail sem `@`, valor fora da faixa, duplicata, chave estrangeira inexistente.
+- Segurança: células começando com `=`, `+`, `-` ou `@` (CSV injection).
 
-Para cada um, valido: **mensagem de erro clara** (linha e coluna), **política de importação definida** (tudo ou nada vs. parcial com relatório), que **nada fica persistido pela metade** quando a regra é atômica, que a UI não trava e que há log/auditoria.
+Em cada caso, espero uma mensagem que ajude o usuário a corrigir o arquivo, dizendo a linha e a coluna quando fizer sentido. A tela não pode travar e o erro precisa ficar registrado em log.
 
-> Observação: o site de exemplo (`the-internet.herokuapp.com/upload`) não valida conteúdo; ele aceita qualquer arquivo. Por isso, nos testes práticos, o conteúdo inválido é comprovado por um validador próprio e o teste verifica que o site aceita o upload ("File Uploaded!"), sem fingir que ele rejeita o arquivo. Num sistema real, a asserção seria a mensagem de erro e a ausência de dados persistidos.
+Antes de escrever esses testes é preciso definir com o time se a importação é tudo ou nada ou se aceita parte do arquivo e devolve um relatório. Se for tudo ou nada, nenhum registro pode ficar salvo depois de uma falha.
+
+> O site de exemplo (`the-internet.herokuapp.com/upload`) aceita qualquer arquivo e não valida o conteúdo. Por isso, nos testes práticos, um validador próprio reprova o conteúdo e o teste confirma que o site aceitou o upload ("File Uploaded!"). Não faria sentido fingir uma rejeição que não existe. Em um sistema real, eu verificaria a mensagem de erro e que nada foi salvo.

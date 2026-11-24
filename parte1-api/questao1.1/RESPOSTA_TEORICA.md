@@ -2,29 +2,26 @@
 
 ## 1.1.a) Como estruturar os testes de rate limiting e o comportamento ao exceder o limite
 
-Eu separo em três camadas, da mais barata para a mais cara:
+Eu começaria pelo mais barato, que é olhar os headers em uma chamada real. Verifico se `X-RateLimit-Limit`, `X-RateLimit-Remaining` e `X-RateLimit-Reset` vieram, se são numéricos e se fazem sentido: `remaining` entre 0 e o limite, `reset` no futuro, limite de 60 sem autenticação e de pelo menos 5000 com token. Também comparo duas chamadas seguidas, porque dentro da mesma janela o `remaining` não pode aumentar.
 
-1. **Contrato dos headers (chamada real, barata).** Valido que `X-RateLimit-Limit`, `X-RateLimit-Remaining` e `X-RateLimit-Reset` existem, são numéricos e coerentes (`0 ≤ remaining ≤ limit`, `reset` no futuro, `limit` = 60 sem autenticação e ≥ 5000 com token) e que `remaining` não aumenta entre duas chamadas seguidas.
-2. **Comportamento no limite (determinístico, com mock/stub).** Esgotar o limite real da GitHub API é lento, instável e prejudica outros usuários do mesmo IP (inclusive o CI compartilhado). Por isso simulo a resposta `403` com `remaining = 0` (ou `429` com `Retry-After`) e valido a lógica do cliente: detecção correta do rate limit, diferenciando-o de um `403` por permissão (`remaining > 0`), e cálculo da espera até o reset. No projeto, isso está nos testes marcados com `[mock]`. Num cliente real eu também testaria o backoff (esperar em vez de repetir na hora), que não foi implementado aqui.
-3. **Exaustão real (opcional, isolada).** Um teste lento, marcado (ex.: `@slow`) e executado só em pipeline noturno, contra um ambiente próprio com limite baixo configurável e credencial dedicada. Valida o ciclo completo: estourar o limite, receber o erro, esperar a janela e voltar a ser atendido (com relógio controlado, para não esperar de verdade).
+Para testar o limite estourado eu não gastaria o limite real da GitHub API. É lento, deixa o teste instável e atrapalha quem usa o mesmo IP, inclusive o CI. Por isso simulei a resposta, `403` com `remaining = 0` ou `429` com `Retry-After`, e testei se o cliente reconhece o rate limit, se não o confunde com um `403` de permissão (em que o `remaining` ainda é maior que zero) e se calcula certo o tempo de espera. São os testes marcados com `[mock]`. Em um cliente real eu também testaria o backoff, ou seja, se ele espera em vez de tentar de novo na hora. Isso eu não implementei aqui.
 
-O que eu valido ao exceder o limite: status correto (`403`/`429`), corpo de erro padronizado, `Retry-After`/`Reset` coerentes, que o sistema não perde nem duplica operações, e que o limite é aplicado **por chave/IP** (um consumidor não afeta o outro).
+Estourar o limite de verdade eu deixaria para um teste separado, marcado como `@slow` e rodando só à noite, em um ambiente nosso com limite baixo e credencial própria. Ali dá para percorrer o ciclo inteiro: estourar, receber o erro, passar a janela (com o relógio controlado, para não ficar esperando) e voltar a ser atendido.
+
+Quando o limite é excedido, eu confiro o status, o corpo do erro e se `Retry-After` e `Reset` batem. Confiro também se nenhuma operação se perdeu ou foi duplicada e se o bloqueio vale só para aquela chave ou IP, já que um consumidor não pode derrubar o outro.
 
 ## 1.1.b) Obter e reutilizar o token entre os testes
 
-Implementei uma classe `TokenManager` (`utils/api-helper.js`) com cache em memória:
+Criei a classe `TokenManager`, em `utils/api-helper.js`, que guarda o token em memória. O `getToken()` só faz login quando ainda não há token ou quando o atual venceu. Quem precisa fazer uma chamada autenticada usa o `authedGet()`, que já monta o header `Authorization: Bearer <token>`.
 
-- `getToken()` só faz login se não houver token ou se ele estiver expirado (TTL controlado, `expiresAt`).
-- **Single-flight:** se vários testes pedem o token ao mesmo tempo, compartilham a mesma Promise e fazem **um** login (evita estourar limite de login e flakiness).
-- `authedGet()` monta o header `Authorization: Bearer <token>`.
+Um cuidado que tomei foi com pedidos simultâneos. Se vários testes pedem o token ao mesmo tempo, todos esperam a mesma Promise e acontece um login só (o chamado *single-flight*). Sem isso, seria fácil esbarrar no limite de login e ter testes falhando de forma intermitente.
 
-Em um projeto maior, o mesmo princípio vira um `globalSetup` (autentica uma vez e persiste em arquivo, como o `storageState`) ou uma fixture com escopo de *worker* (`test.extend` com `scope: 'worker'`), para cada worker paralelo ter seu token sem logar a cada teste.
+Em um projeto maior eu levaria a mesma ideia para um `globalSetup`, que autentica uma vez e salva em arquivo, ou para uma fixture com escopo de worker. Assim cada worker tem o seu token e não precisa logar a cada teste.
 
 ## 1.1.c) Detectar expiração e tratar o cenário
 
-Combino duas estratégias:
+Uso duas abordagens juntas. Na primeira, o cliente sabe quando o token vence (`expiresAt`) e renova um pouco antes, com uma margem de segurança (`safetyMs`).
 
-- **Proativa:** o cliente guarda `expiresAt` (TTL) e renova **antes** de expirar, com uma margem de segurança (`safetyMs`).
-- **Reativa:** se o servidor responde `401`, renova o token e repete a requisição **uma única vez**. Se a segunda tentativa também retornar `401`, o cliente devolve esse 401 a quem chamou, sem entrar em loop, e o teste decide (credencial inválida ≠ token expirado). Um 401 atrasado, de um token que outra requisição já renovou, não dispara outro login: o cliente repete com o token atual.
+A segunda cobre o caso em que o servidor recusa o token mesmo assim. Ao receber um `401`, o cliente renova e repete a requisição uma única vez. Se vier outro `401`, ele devolve o erro para quem chamou e não entra em loop, porque aí o problema provavelmente é a credencial, e não a expiração. Existe ainda o `401` que chega atrasado, de um token que outra requisição já renovou. Nesse caso o cliente não faz outro login, só repete com o token atual.
 
-Para testar sem esperar 2 minutos, o relógio é **injetável** (`now`): avanço o tempo no teste e verifico que o novo login acontece. Também testo o caso de o servidor invalidar o token antes do TTL local. Como o ReqRes devolve um token fixo que não expira de verdade, a expiração é simulada (TTL fixo curto + cliente falso que responde `401`), o que está documentado no README.
+Para não esperar 2 minutos em cada teste, o relógio (`now`) pode ser passado de fora: avanço o tempo e verifico se o novo login aconteceu. Também testei o servidor invalidando o token antes do prazo. Como o ReqRes devolve um token fixo que nunca expira, essa parte é simulada com um TTL curto e um cliente falso que responde `401`. Deixei isso registrado no README.

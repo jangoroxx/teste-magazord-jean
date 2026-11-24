@@ -2,23 +2,18 @@
 
 ## 2.1.a) Garantir que cada execução use um cupom válido diferente
 
-O princípio é **nunca depender de dados "compartilhados e consumíveis"**. Em ordem de preferência:
+Cupom de uso único não combina com valor fixo no código: passa na primeira execução e quebra na segunda. O que eu faria é criar o cupom no `beforeEach`, por uma API administrativa ou direto no banco de testes, com um código único (um prefixo mais UUID ou timestamp), validade e a regra de uso único. No `afterEach`, o teste apaga ou invalida o que criou. Como cada teste tem o seu cupom, eles podem rodar em paralelo sem um usar o do outro. Se fosse caro criar um por teste, eu prepararia um conjunto por worker, usando o `testInfo.workerIndex`.
 
-1. **Gerar o cupom no `beforeEach` via API/seed** (endpoint administrativo, *factory* ou script no banco de testes), com código único (prefixo + UUID/timestamp), validade e regra "uso único". No `afterEach`, remover ou invalidar o cupom.
-2. **Paralelismo:** como cada worker roda em paralelo, o cupom é criado por teste (ou por worker, usando `testInfo.workerIndex`), nunca um valor fixo no código.
-3. **Se não houver API para criar cupons:** um *pool* pré-carregado, com reserva atômica (cada teste "retira" um cupom do pool) e rotina de reposição.
-4. **Ambiente resetável:** banco de testes com snapshot/restore ou *containers* descartáveis, para a massa voltar ao estado inicial.
+Se não houvesse como criar cupons, eu manteria uma lista pré-carregada, da qual cada teste retira um. Essa retirada precisa ser atômica, para dois testes não pegarem o mesmo, e a lista precisa de uma rotina de reposição. Outra saída é restaurar o banco de testes a partir de um snapshot, ou subir um container descartável a cada execução.
 
-Além do caminho feliz, testo deliberadamente o cenário **"cupom já utilizado"**: consumo o cupom e tento usá-lo de novo, esperando a rejeição.
+Além do caminho feliz, vale testar o cupom já utilizado: uso uma vez, tento de novo e espero a rejeição.
 
-> Observação: o SauceDemo não possui cupom nem pagamento. No teste prático apliquei o mesmo princípio aos dados que existem lá (nome, sobrenome e CEP gerados dinamicamente com Faker a cada execução).
+> O SauceDemo não tem cupom nem pagamento. No teste prático apliquei a mesma ideia ao que existe lá: nome, sobrenome e CEP são gerados com Faker a cada execução.
 
 ## 2.1.b) Validar a confirmação do pedido sem depender de e-mail real
 
-Valido o **resultado** e não o provedor de e-mail:
+Primeiro olho a tela final: a mensagem de confirmação e o número do pedido. Só que a tela pode mostrar sucesso sem o pedido ter sido gravado, então consulto também a API ou o banco e confiro status, itens, total e cupom aplicado.
 
-- **UI:** mensagem/número de confirmação exibidos na tela final.
-- **API/Banco:** consulto o pedido criado (status, itens, total, cupom aplicado) para garantir que o que a tela mostrou foi realmente persistido.
-- **E-mail:** uso uma caixa de e-mail falsa no ambiente de teste (Mailpit, MailHog, Mailtrap ou Ethereal), consultável por API, e valido destinatário, assunto e conteúdo (número do pedido, valores). Alternativas: validar a mensagem publicada na fila/evento de "pedido confirmado" ou mockar o provedor (SES/SendGrid) e checar o payload enviado.
+Para o e-mail, eu usaria uma caixa falsa no ambiente de teste, como Mailpit ou Mailtrap, que dá para consultar por API. Ali verifico destinatário, assunto e conteúdo, principalmente o número do pedido e os valores. Se isso não for possível, dá para verificar a mensagem de "pedido confirmado" na fila, ou mockar o provedor (SES, SendGrid) e conferir o que seria enviado.
 
-O objetivo é testar que o sistema **dispara** a notificação certa com o conteúdo certo, de forma determinística e sem enviar e-mails de verdade.
+A entrega do e-mail fica com o provedor. O que nos cabe garantir é que o sistema disparou a notificação certa, com o conteúdo certo, para a pessoa certa.

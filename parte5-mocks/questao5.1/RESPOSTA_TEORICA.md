@@ -4,52 +4,59 @@ Contexto: integração com marketplaces (Mercado Livre, Amazon) para publicar pr
 
 ## 5.1.a) Testar sem afetar os ambientes reais
 
-O primeiro passo é **não assumir que todo marketplace tem sandbox**. Cada um funciona de um jeito:
+Antes de tudo eu verificaria o que cada marketplace oferece, porque nem todos têm um sandbox separado.
 
-- **Mercado Livre:** a documentação de testes descreve o uso de **usuários de teste** criados com o token da conta (informando o país/site, ex.: Brasil), e **não encontrei menção a uma URL de sandbox separada**: o teste acontece na própria plataforma. Cria-se ao menos um vendedor e um comprador de teste. Regras da documentação: **até 10 usuários de teste por conta**; usuários **sem atividade (comprar, perguntar, publicar) por 60 dias são removidos**; eles **só compram, vendem e perguntam em itens de teste**, que são removidos periodicamente; e os anúncios de teste devem ficar na categoria "Others", nunca em "gold"/"gold_premium" (para não aparecerem na home). Por isso o **setup dos usuários de teste precisa ser automatizado e recriável**, e não manual.
-- **Amazon (SP-API):** oferece um endpoint de **sandbox** com respostas simuladas para um conjunto de operações. Serve para validar o formato de requisição e de resposta, mas não reproduz o comportamento real (estoque, filas, limites).
+No Mercado Livre, a documentação fala em usuários de teste, criados com o token da conta e informando o país. Não encontrei menção a uma URL de sandbox: o teste acontece na própria plataforma. É preciso ao menos um vendedor e um comprador, e há algumas regras:
 
-**Consequência prática:** como o teste do Mercado Livre acontece na própria plataforma, com contas de teste (e não em um ambiente isolado, até onde a documentação indica), um bug nosso (loop de publicação, preço errado, excesso de chamadas) ainda consome **rate limit real** e pode bloquear a aplicação. Por isso:
+- o limite é de 10 usuários de teste por conta;
+- quem fica 60 dias sem atividade (comprar, perguntar, publicar) é removido;
+- esses usuários só compram, vendem e perguntam em itens de teste, que são removidos periodicamente;
+- os anúncios devem ficar na categoria "Others" e nunca em "gold" ou "gold_premium", para não aparecerem na home.
 
-- **Mocks em todo PR/CI**, para o dia a dia e para os cenários de falha (ver 5.1.b e 5.1.c).
-- **Contas de teste reais só em poucos smoke tests**, controlados e periódicos, para confirmar que os mocks ainda representam a API.
-- **Aplicação separada no DevCenter** para homologação (apontando para `localhost` ou staging), vinculada **apenas** aos usuários de teste, com credenciais próprias guardadas em *secrets* do CI.
-- **Guardrails:** configuração por ambiente, *allowlist* de hosts, e credenciais de produção que nunca existem no CI.
-- **Higiene de dados:** tudo que for criado em teste (anúncios, pedidos) usa um prefixo identificável e é limpo ao final; respeito aos limites de requisições mesmo nas contas de teste.
+Como usuários e itens podem sumir, eu automatizaria a criação deles em vez de depender de um cadastro manual.
+
+A Amazon (SP-API) tem um endpoint de sandbox com respostas simuladas para parte das operações. Serve para conferir o formato das requisições e respostas, mas não reproduz estoque, filas e limites reais.
+
+Um erro nosso no Mercado Livre, como um loop de publicação, ainda consome rate limit de verdade e pode bloquear a aplicação. Por isso eu usaria mocks em todo PR e deixaria as contas de teste para poucos smoke tests periódicos, que confirmam se os mocks ainda representam a API.
+
+Também criaria uma aplicação só para homologação no DevCenter, vinculada apenas aos usuários de teste e com credenciais nos secrets do CI. A credencial de produção não deve nem existir no CI, e uma lista de hosts permitidos impede uma chamada por engano. O que for criado em teste leva um prefixo reconhecível e é apagado no final.
 
 ## 5.1.b) Estratégia de mock e ferramentas
 
-Combino camadas:
+Nos testes de unidade, eu substituiria o cliente do marketplace por um stub ou fake. Nos de integração, subiria um servidor de mock e apontaria a URL base para ele, de modo que o sistema faça chamadas HTTP de verdade.
 
-- **Unidade:** *stubs/fakes* da interface do cliente do marketplace.
-- **Integração:** um **servidor de mock** que o sistema chama de verdade por HTTP, apontando a URL base do marketplace para ele.
+Para esse servidor, escolheria o WireMock. Ele não depende da linguagem do backend, roda em Docker e permite simular estado, atraso, timeout e conexão cortada, que é o que mais interessa em uma integração assim.
 
-Ferramentas:
-- **WireMock:** independente de linguagem, roda em Docker, tem cenários com estado, atrasos e injeção de falhas (timeout, conexão cortada). É a minha escolha para integração de backend e pipelines.
-- **MSW:** intercepta requisições dentro do processo (Node/navegador). Ótimo para testes JS/E2E do front, mas não substitui um mock de rede para um backend em outra linguagem.
-- **JSON Server:** rápido para protótipos e CRUD simples, mas fraco para falhas, estado complexo e fidelidade ao contrato.
-- **Mockoon/Prism:** úteis quando já existe uma especificação OpenAPI, para gerar o mock a partir dela.
+O MSW é muito bom para JavaScript, mas intercepta as chamadas dentro do processo, então não atende um backend em outra linguagem. O JSON Server serve para um protótipo ou CRUD simples e é fraco para simular falhas. Mockoon e Prism ajudam quando já existe uma especificação OpenAPI para gerar o mock.
 
-Para ganhar fidelidade, gravo respostas reais do sandbox (*record/replay*), versiono os *stubs* e os revisito quando o marketplace mudar.
+Para o mock não se afastar da API real, eu gravaria respostas do sandbox ou das contas de teste como ponto de partida, versionaria os stubs e os revisaria quando o marketplace mudasse alguma coisa.
 
 ## 5.1.c) Simulação de erro 500, timeout e 429
 
-| Cenário | Como simular | O que o sistema deve fazer / o que valido |
-|---|---|---|
-| **500** | Mock responde `500` (de forma intermitente e permanente) | *Retry* com *backoff* exponencial e *jitter*, limite de tentativas, **idempotência** (não duplica pedido/anúncio), estado final consistente, log e alerta |
-| **Timeout** | Mock com atraso maior que o timeout do cliente | Timeout configurado e respeitado, cancelamento da requisição, *retry* seguro, *circuit breaker* quando a falha persiste, fila não fica bloqueada, mensagem/status coerente para o usuário |
-| **429** | Mock responde `429` (a documentação cita `local_rate_limited`: "muitas chamadas, tente de novo em alguns segundos") com `Retry-After` | Respeita o `Retry-After` (sem *retry* imediato), aplica *throttling*/fila, prioriza operações críticas (pedidos antes de atualização de preço), registra métrica |
-| **401 (token expirado)** | Mock responde `401` quando o `access_token` expira. A documentação fala em 6 h, mas o exemplo de resposta traz `expires_in: 10800` (3 h); por isso o código deve usar o **`expires_in` da resposta**, e não um valor fixo. O `refresh_token` é de **uso único** (cada renovação devolve um novo) e vale 6 meses | Renova o token e repete a requisição **uma única vez** (sem loop). Guarda o **novo `refresh_token` antes** de usar o novo `access_token`; evita renovações **concorrentes** (*single-flight*), porque reutilizar o refresh antigo gera `invalid_grant` (400). Se o refresh for recusado, falha com erro claro e exige nova autorização |
-| **403 (permissão/política)** | Mock responde `403` (`forbidden`) quando a requisição não é autorizada para o recurso, por exemplo usando o token de outro usuário. Há também relatos de `403` em buscas públicas de anúncios | Distingue **403 de permissão** (não faz *retry*, gera alerta e mensagem clara) de **429** (faz *retry* com *backoff*); não trata como falha transitória algo que nunca vai passar |
+**Erro 500.** O mock responde `500` de duas formas: só algumas vezes, e depois sempre. Espero novas tentativas com backoff exponencial e jitter, até um limite. O ponto mais importante é não duplicar pedido nem anúncio. Quando as tentativas acabam, o estado tem que ficar consistente, com log e alerta.
+
+**Timeout.** O mock demora mais que o timeout do cliente. Verifico se a requisição é cancelada no tempo configurado, se repetir é seguro, se a fila continua andando e se o usuário recebe uma mensagem coerente. Se a falha persistir, o circuit breaker deve abrir.
+
+**429.** O mock responde `429` com `Retry-After`. A documentação cita o erro `local_rate_limited`, pedindo para tentar de novo em alguns segundos. O sistema precisa esperar esse tempo, segurar as próximas chamadas em fila e registrar uma métrica. Se houver disputa, pedidos passam na frente de atualização de preço.
+
+A pergunta não cita o 401 e o 403, mas eu os incluiria porque são fáceis de tratar errado.
+
+**401, token expirado.** A documentação fala em 6 horas, mas o exemplo de resposta traz `expires_in: 10800`, que são 3. Então o código deve usar o valor que vier na resposta, e não um número fixo. O `refresh_token` vale 6 meses e só pode ser usado uma vez, já que cada renovação devolve um novo. Por isso o novo precisa ser salvo antes de usar o novo `access_token`, e duas renovações não podem acontecer ao mesmo tempo: reutilizar o antigo gera `invalid_grant` (400). Depois de renovar, a requisição é repetida uma única vez. Se a renovação for recusada, o erro deve deixar claro que é preciso autorizar de novo.
+
+**403, sem permissão.** Acontece, por exemplo, ao usar o token de outro usuário, e há relatos de `403` em buscas públicas de anúncios. Ao contrário do 429, repetir não resolve. O sistema deve parar, gerar alerta e mostrar uma mensagem clara.
 
 ## 5.1.d) Validação de payload (schema validation)
 
-- Uso **JSON Schema/OpenAPI** (Ajv, Zod, ou ferramentas como Schemathesis) para validar o que **enviamos** (no mock, comparando o request recebido com o schema) e o que **esperamos receber**.
-- **Onde entra no pipeline:** rápido, na etapa de testes de integração de cada PR (contra o mock) e, de forma periódica (ex.: noturna), contra o **sandbox real** para detectar *drift* (a API mudou e nosso mock ficou desatualizado).
-- Schemas versionados no repositório; rigorosos em campos obrigatórios e tipos, e **tolerantes a campos extras** (*tolerant reader*), para não quebrar com evoluções compatíveis da API.
+Eu validaria os dois lados com JSON Schema ou OpenAPI, usando Ajv ou Zod. No que enviamos, o teste compara a requisição recebida pelo mock com o schema. No que recebemos, valida a resposta antes de o sistema usá-la.
+
+No pipeline, isso entra nos testes de integração de cada PR, contra o mock, porque é rápido. À noite, rodaria a mesma validação contra o sandbox ou as contas de teste, para descobrir se a API mudou e o mock ficou para trás.
+
+Os schemas ficam versionados no repositório. Seriam rigorosos com campos obrigatórios e tipos, mas aceitariam campos extras na resposta. Se o marketplace só acrescentar um campo novo, nosso teste não tem motivo para quebrar.
 
 ## 5.1.e) Mock vs. contract testing
 
-- **Mock:** testa o *nosso código* contra uma **suposição** sobre a API. É rápido e determinístico, ótimo para cenários de falha, mas se a API real mudar o mock continua "verde" (falso positivo).
-- **Contract testing:** verifica que a suposição **coincide com a realidade** (ou que consumidor e provedor concordam). O contrato consumer-driven (Pact) brilha entre serviços **que a gente controla** (front ↔ API própria, microsserviços).
-- **Com Mercado Livre/Amazon**, não controlamos o provedor, então um Pact bilateral é inviável. A abordagem prática é: **mocks** para comportamento e falhas (em todo PR) + **verificação de schema/contrato contra o sandbox ou a especificação oficial** (periódica) para detectar *drift* + **poucos smoke tests reais** em sandbox. Os mocks dão velocidade e cobertura de falhas, e a verificação de contrato dá confiança de que eles ainda representam a API real.
+O mock testa o nosso código contra aquilo que acreditamos que a API faz. É rápido, previsível e ótimo para simular falhas. O risco é a API real mudar e os testes continuarem passando.
+
+O contract testing cobre esse ponto, verificando se o que acreditamos bate com a realidade. Ferramentas como o Pact funcionam muito bem quando controlamos os dois lados, como um front e a nossa própria API.
+
+Com Mercado Livre e Amazon não é o caso, porque não controlamos o provedor e não dá para contar com eles rodando os nossos contratos. Então eu usaria mocks em todo PR, uma verificação periódica de schema contra o ambiente de teste ou a especificação oficial, e poucos smoke tests com contas de teste ou sandbox. Os mocks deixam o time trabalhar rápido, e a verificação periódica avisa quando eles deixaram de representar a API.
