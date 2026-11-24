@@ -7,7 +7,7 @@ CT-1.01 [real] P:A - Headers de rate limit presentes
 CT-1.02 [real] P:A - Valores coerentes dos headers
   Esperado: limit=60 (sem token) ou >=5000 (com token); 0<=remaining<=limit; reset no futuro (epoch em segundos).
 CT-1.03 [real] P:M - Remaining não aumenta entre chamadas
-  Passos: duas chamadas seguidas.  Esperado: remaining da 2ª <= remaining da 1ª; limit igual.
+  Passos: duas chamadas seguidas.  Esperado: na mesma janela (reset igual), remaining da 2ª <= remaining da 1ª; limit igual. Se a janela reiniciar no meio, mede de novo uma vez.
 CT-1.04 [mock] P:A - Detecção de limite esgotado
   Dado: resposta 403 com remaining=0.  Esperado: classificada como rate limit.
 CT-1.05 [mock] P:A - 403 por permissão não é rate limit
@@ -32,3 +32,6 @@ CT-1.12 [mock] P:A - 401 persistente
   Esperado: apenas 1 retry; devolve 401 sem loop infinito.
 CT-1.13 [mock] P:M - Logins concorrentes
   Passos: 3 chamadas simultâneas a getToken.  Esperado: apenas 1 login e o mesmo token para todos.
+CT-1.14 [mock] P:M - 401 atrasado de token já renovado
+  Passos: duas requisições com o mesmo token expirado; uma recebe o 401 depois que a outra já renovou.
+  Esperado: ambas terminam com 200 e há uma única renovação.

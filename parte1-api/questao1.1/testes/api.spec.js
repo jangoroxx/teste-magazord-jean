@@ -50,8 +50,16 @@ test.describe('Rate limiting - GitHub API', () => {
   });
 
   test('remaining não aumenta entre duas chamadas seguidas (chamada real)', async ({ request }) => {
-    const first = parseRateLimit((await request.get(GITHUB_USER_URL, { headers: githubHeaders() })).headers());
-    const second = parseRateLimit((await request.get(GITHUB_USER_URL, { headers: githubHeaders() })).headers());
+    const read = async () =>
+      parseRateLimit((await request.get(GITHUB_USER_URL, { headers: githubHeaders() })).headers());
+    let first = await read();
+    let second = await read();
+    if (second.reset !== first.reset) {
+      // A janela reiniciou entre as chamadas (o remaining volta ao máximo): mede de novo, uma vez.
+      first = second;
+      second = await read();
+    }
+    expect(second.reset).toBe(first.reset); // só faz sentido comparar dentro da mesma janela
     expect(second.remaining).toBeLessThanOrEqual(first.remaining);
     expect(second.limit).toBe(first.limit);
   });
@@ -101,12 +109,7 @@ test.describe('Token - ReqRes', () => {
   test('login real, reuso do token e requisição autenticada', async ({ request }) => {
     test.skip(!process.env.REQRES_API_KEY, 'ReqRes exige x-api-key em requisições com Bearer (defina REQRES_API_KEY)');
     const tokens = new TokenManager(request);
-    let token;
-    try {
-      token = await tokens.getToken();
-    } catch (error) {
-      test.skip(true, `ReqRes indisponível ou exige API key (defina REQRES_API_KEY): ${error.message}`);
-    }
+    const token = await tokens.getToken(); // com a chave definida, falha de login é falha do teste
     expect(token).toBeTruthy();
 
     expect(await tokens.getToken()).toBe(token); // reutiliza
@@ -170,5 +173,25 @@ test.describe('Token - ReqRes', () => {
     const results = await Promise.all([tokens.getToken(), tokens.getToken(), tokens.getToken()]);
     expect(new Set(results).size).toBe(1);
     expect(fake.state.posts).toBe(1);
+  });
+
+  test('[mock] 401 atrasado não renova um token que outra requisição já renovou', async () => {
+    const fake = createFakeRequest();
+    const originalGet = fake.get;
+    let liberarLenta;
+    const espera = new Promise((resolve) => { liberarLenta = resolve; });
+    fake.get = async (url, options) => {
+      if (url.endsWith('/lenta') && options.headers.Authorization === 'Bearer token-1') await espera;
+      return originalGet(url, options);
+    };
+    const tokens = new TokenManager(fake);
+    await tokens.getToken();
+    fake.expire('token-1');
+
+    const lenta = tokens.authedGet('/lenta'); // sai com token-1 e fica presa
+    expect((await tokens.authedGet('/rapida')).status()).toBe(200); // 401 -> renova para token-2
+    liberarLenta(); // o 401 do token-1 só chega agora
+    expect((await lenta).status()).toBe(200); // repete com token-2
+    expect(tokens.loginCount).toBe(2); // login inicial + uma única renovação
   });
 });

@@ -42,6 +42,7 @@ function secondsUntilReset(rateLimit, nowMs = Date.now()) {
  *  - Reuso: só faz login se não houver token ou se ele estiver expirado (TTL).
  *  - Single-flight: logins concorrentes compartilham a mesma Promise.
  *  - Reativo: se o servidor responder 401, renova e repete UMA vez (sem loop).
+ *  - 401 atrasado: se outra requisição já renovou o token, não faz um novo login.
  *  - `now` é injetável para simular a passagem do tempo sem esperar 2 minutos.
  */
 class TokenManager {
@@ -84,9 +85,12 @@ class TokenManager {
     const call = async (token) =>
       this.request.get(`${REQRES_BASE}${path}`, { headers: reqresHeaders({ Authorization: `Bearer ${token}` }) });
 
-    let res = await call(await this.getToken());
+    const usedToken = await this.getToken();
+    let res = await call(usedToken);
     if (res.status() === 401) {
-      res = await call(await this.getToken({ force: true })); // uma única nova tentativa
+      // Só renova se o token recusado ainda for o atual; se outra requisição já renovou, usa o novo.
+      const force = this.token === usedToken;
+      res = await call(await this.getToken({ force })); // uma única nova tentativa
     }
     return res;
   }
