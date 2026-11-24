@@ -6,7 +6,7 @@ CT-3.02 P:A - CSV médio (100 linhas)   - idem.
 CT-3.03 P:A - CSV grande (1000 linhas) - idem; contagem de registros = 1000; e-mails únicos.
 CT-3.04 P:M - Fixture válido do README (2 linhas) - validador aprova e o upload é concluído.
 CT-3.05 P:A - CSV vazio
-  Esperado (sistema real): rejeitar com mensagem clara. No site de exemplo: o conteúdo é reprovado pelo validador e o comportamento do site é registrado.
+  Esperado (sistema real): rejeitar com mensagem clara. No site de exemplo: o conteúdo é reprovado pelo validador e o teste verifica que o site aceita o upload ("File Uploaded!"); vale também para CT-3.06 a CT-3.08.
 CT-3.06 P:A - Formato incorreto (delimitador ";" e cabeçalho diferente) - validador aponta cabeçalho inválido.
 CT-3.07 P:A - Dados malformados
   Conteúdo: e-mail sem "@", idade "abc", linha com colunas faltando, e-mail duplicado, nome vazio.

@@ -43,7 +43,8 @@ test.describe('Upload de CSV válido (10, 100 e 1000 linhas)', () => {
  * ATENÇÃO: o site the-internet.herokuapp.com NÃO valida o conteúdo do arquivo.
  * Por isso, nos cenários inválidos o teste:
  *   (a) prova que o conteúdo é inválido com o validador (o que um sistema real deveria rejeitar), e
- *   (b) registra como o site se comporta (o upload "passa"), sem fingir que ele rejeita.
+ *   (b) verifica como o site se comporta (o upload "passa"), sem fingir que ele rejeita.
+ * Se o site passar a rejeitar, ou devolver página de erro, o teste falha e o cenário deve ser revisto.
  */
 test.describe('Upload de CSV inválido', () => {
   const cenarios = [
@@ -60,10 +61,10 @@ test.describe('Upload de CSV inválido', () => {
       expect(result.errors.join(' | ')).toMatch(erroEsperado);
 
       await upload(page, path.join(FIXTURES, arquivo));
-      // o site de exemplo responde sempre com uma página de resultado; registramos o que ocorreu
-      const titulo = (await page.locator('h3, h1').first().textContent())?.trim();
-      test.info().annotations.push({ type: 'comportamento-do-site', description: `${arquivo}: "${titulo}"` });
-      expect(titulo).toBeTruthy();
+      // o site de exemplo aceita o arquivo inválido; a asserção fixa esse comportamento observado
+      await expect(page.locator('h3')).toHaveText('File Uploaded!');
+      await expect(page.locator('#uploaded-files')).toHaveText(arquivo);
+      test.info().annotations.push({ type: 'comportamento-do-site', description: `${arquivo}: aceito pelo site` });
     });
   }
 

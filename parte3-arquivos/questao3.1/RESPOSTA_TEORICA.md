@@ -22,4 +22,4 @@ Monto uma matriz de arquivos problemáticos:
 
 Para cada um, valido: **mensagem de erro clara** (linha e coluna), **política de importação definida** (tudo ou nada vs. parcial com relatório), que **nada fica persistido pela metade** quando a regra é atômica, que a UI não trava e que há log/auditoria.
 
-> Observação: o site de exemplo (`the-internet.herokuapp.com/upload`) não valida conteúdo; ele aceita qualquer arquivo. Por isso, nos testes práticos, o conteúdo inválido é comprovado por um validador próprio e o comportamento do site é apenas registrado, sem fingir que ele rejeita o arquivo. Num sistema real, a asserção seria a mensagem de erro e a ausência de dados persistidos.
+> Observação: o site de exemplo (`the-internet.herokuapp.com/upload`) não valida conteúdo; ele aceita qualquer arquivo. Por isso, nos testes práticos, o conteúdo inválido é comprovado por um validador próprio e o teste verifica que o site aceita o upload ("File Uploaded!"), sem fingir que ele rejeita o arquivo. Num sistema real, a asserção seria a mensagem de erro e a ausência de dados persistidos.
