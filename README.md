@@ -65,13 +65,19 @@ npm run test:unit
 **Decisões técnicas**
 - **Parte 1:** as chamadas reais cobrem o contrato dos headers. O estado de "limite esgotado" e a expiração do token são simulados (testes `[mock]`), por serem determinísticos e por não ser seguro esgotar o limite real (afeta o IP/CI). O relógio do `TokenManager` é injetável para simular os 2 minutos de TTL sem esperar. O ReqRes devolve um token fixo que não expira de verdade, por isso a expiração é simulada.
 - **Parte 2:** o SauceDemo não tem cupom nem pagamento; a questão do cupom é respondida na teoria e o prático usa dados dinâmicos, Page Object e limpeza de estado após cada teste.
-- **Parte 3:** o site `the-internet.herokuapp.com/upload` aceita qualquer arquivo. Nos cenários inválidos o conteúdo é reprovado por um validador próprio e o comportamento do site é registrado como anotação, sem simular uma rejeição que ele não faz.
+- **Parte 3:** o site `the-internet.herokuapp.com/upload` aceita qualquer arquivo. Nos cenários inválidos o conteúdo é reprovado por um validador próprio e o teste verifica que o site aceita o upload ("File Uploaded!"), sem simular uma rejeição que ele não faz.
 
 **Comportamentos e correções encontrados na execução (23/11/2026)**
 - **ReqRes:** sem `x-api-key`, o login e o `GET /api/users/2` respondem 200, mas o mesmo GET com `Authorization: Bearer` responde 401 `missing_api_key`. O teste de requisição autenticada foi mantido com todas as asserções e roda somente com `REQRES_API_KEY` definida (sem ela, é pulado). Um novo teste, executado sem chave, verifica o login, o reuso do token e esse 401. O caminho com chave não foi executado nesta data.
 - **`corrupted.csv`:** o arquivo continha sequências de escape como texto (`\x00\xff...`) em vez de bytes binários, e por isso era reprovado pelo cabeçalho, e não como corrompido. O fixture foi regravado com os bytes reais; a asserção e o validador não mudaram.
 
+**Ajustes da revisão (24/11/2026)**
+- **Parte 1:** com `REQRES_API_KEY` definida, falha de login agora reprova o teste (antes era pulado). Um 401 atrasado não provoca segunda renovação; isso depende de o servidor devolver um token diferente a cada login, o que o ReqRes não faz.
+- **Parte 1:** a comparação do `remaining` só vale dentro da mesma janela (`reset` igual).
+- **Parte 3:** nos arquivos inválidos, o teste exige o "File Uploaded!" observado; antes aceitava qualquer título, inclusive de página de erro.
+
 **Com mais tempo eu faria**
+- Backoff no cliente da Parte 1 (hoje só há a detecção do limite e o cálculo da espera).
 - Pipeline de CI (GitHub Actions) rodando as 3 partes e publicando o relatório HTML.
 - Tag `@slow` para o teste de exaustão real do rate limit, em ambiente próprio.
 - Testes de contrato (schema) para as respostas das APIs.
