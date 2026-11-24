@@ -34,6 +34,15 @@ npm run test:parte3   # Arquivos (upload de CSV)
 npm run test:unit
 ```
 
+### Modo demonstração (para acompanhar passo a passo)
+```bash
+npm run demo          # todas as partes
+npm run demo:parte1   # ou demo:parte2 / demo:parte3
+```
+Abre o navegador, roda um teste por vez e faz uma pausa após cada passo (1,5 s; ajustável pela variável
+`DEMO_PAUSA_MS`). As pausas existem só nesse modo e nenhum teste depende delas. Nos demais comandos, os
+passos aparecem no terminal, sem pausa. Precisa de ambiente com tela; em CI, use `npm test`.
+
 ### Variáveis de ambiente opcionais
 | Variável | Para quê |
 |---|---|
@@ -46,6 +55,8 @@ npm run test:unit
 ├── README.md
 ├── package.json
 ├── playwright.config.js          # 1 projeto Playwright por parte prática
+├── playwright.demo.config.js     # modo demonstração (navegador visível e pausas)
+├── utils/passo.js                # passo nomeado, com pausa só na demonstração
 ├── casos-de-teste/               # casos de teste de cada parte prática (TXT)
 ├── parte1-api/questao1.1/
 │   ├── RESPOSTA_TEORICA.md

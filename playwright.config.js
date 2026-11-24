@@ -10,7 +10,7 @@ module.exports = defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
   retries: 1,
-  reporter: [['list'], ['html', { open: 'never' }]],
+  reporter: [['list', { printSteps: true }], ['html', { open: 'never' }]],
   use: {
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

@@ -9,6 +9,10 @@
     "test:parte2": "playwright test --project=parte2-e2e",
     "test:parte3": "playwright test --project=parte3-arquivos",
     "test:unit": "playwright test --grep \"\\[unit\\]|\\[mock\\]\"",
+    "demo": "playwright test --config=playwright.demo.config.js",
+    "demo:parte1": "npm run demo -- --project=parte1-api",
+    "demo:parte2": "npm run demo -- --project=parte2-e2e",
+    "demo:parte3": "npm run demo -- --project=parte3-arquivos",
     "report": "playwright show-report",
     "postinstall": "playwright install chromium"
   },
